@@ -10,6 +10,7 @@ renderer.setSize(width, height);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
 camera.position.set(0, 70, -80);
+camera.lookAt(0,0,0)
 const loadergltf = new GLTFLoader();
 const PLmodelPath=["bibi_rj_t-pose_brawl_stars-edited.glb","bunny_grom_t-pose_brawl_stars.glb","sprout_t-pose_brawl_stars-edited.glb","white_crow_t-pose_brawl_stars-edited.glb","born_bad_buzz_t-pose_brawl_stars-edited.glb"];
 const PLstartPositions=[[-5,1,0],[5,1,0],[0,1,5],[0,1,-5],[5,1,10]];
@@ -51,8 +52,26 @@ class PLs_ins{
       // if(this.mode==2)this.modeset(0);
     }
 }
-// const PLs=[new PLs_ins(0,3),new PLs_ins(1,4),new PLs_ins(2,2),new PLs_ins(3,0)]
-const PLs=[new PLs_ins(0,3)]
+class arch_ins{
+  constructor(ID,type){
+      this.ID=ID;
+      this.type=type;
+      this.model = null;
+      if(this.type<2)this.startposi=[(Math.random()-0.5)*150,7,(Math.random()-0.5)*150];
+      else this.startposi=[Math.random()*150,0,Math.random()*150];
+      loadergltf.load("archmodels/"+archmodelPath[type], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+  }
+  load( gltf ) {
+    this.model = gltf.scene;
+    scene.add( this.model );
+    this.model.position.set(this.startposi[0],this.startposi[1],this.startposi[2]);
+    this.model.scale.set(4,4,4);
+    this.model.rotation.y=Math.PI;
+    console.log('arch成功 :',this.ID);
+  }
+}
+const PLs=[new PLs_ins(0,3),new PLs_ins(1,4),new PLs_ins(2,2),new PLs_ins(3,0)]
+const archs=[new arch_ins(0,0),new arch_ins(1,1),new arch_ins(2,2)]
 
 const directionalLight = new THREE.DirectionalLight(0xFFFFFF);// 平行光源
 directionalLight.position.set(1, 0.5, 1);
@@ -102,18 +121,16 @@ let spacedown=false;
             if(wasd[0]==1&& wasd[3]==1)togo=1.75*Math.PI;
             if(PLs[i].mode!=1)PLs[i].modeset(1);
             PLs[i].model.rotation.y=togo;
-            PLs[i].model.position.x+=Math.sin(togo)*t_delta*20;
-            PLs[i].model.position.z+=Math.cos(togo)*t_delta*20;
+            PLs[i].model.position.x+=Math.sin(togo)*t_delta*50;
+            PLs[i].model.position.z+=Math.cos(togo)*t_delta*50;
+            camera.position.set(PLs[i].model.position.x,70,PLs[i].model.position.z-80);
+            camera.lookAt(PLs[i].model.position.x,PLs[i].model.position.y,PLs[i].model.position.z);
           }else if(PLs[i].mode==1)PLs[i].modeset(0);
           if(spacedown==true && PLs[i].mode==0)PLs[0].modeset(2);
           if(PLs[i].mode==2 && PLs[i].anime._loopCount>0)PLs[0].modeset(0);
         }
         if(PLs[i].mixer!=null)PLs[i].mixer.update(t_delta);
       }}
-    mouseX+=0.0002;
-    cccX += (mouseX-cccX)*0.07;
-    if(mouseX>1){cccX=-1;mouseX=-1;}
-    camera.lookAt(new THREE.Vector3(0, 0, 0));
     renderer.render(scene, camera);// レンダリング
     requestAnimationFrame(tick);
   }
