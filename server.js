@@ -29,10 +29,13 @@ io.on('connection', function(socket){
   else io.to(socket.id).emit('adopt', [loc[1],Array.from(PLs.values())]);
   
   socket.on('setType',(type)=>{
-    if(!type)type=0;
+    if(!type || type<0 || 3<type){
+      type=-1;
+      io.to(socket.id).emit('reqType', null);
+    }
     loc[2]=type;
     PLs.set(ip,loc);
-    io.to(loc[0]).emit('downdate', loc);
+    io.to(loc[0]).emit('append', loc);
     io.to(socket.id).emit('adopt', [loc[1],Array.from(PLs.values())]);
   });
 
@@ -49,6 +52,6 @@ io.on('connection', function(socket){
     loc[6]=data[1];
     PLs.set(ip,loc);
     io.to(loc[0]).emit('downdate', loc);
-    console.log("mode",loc[1])
+    console.log("mode",loc[1],loc[3])
   });
 });

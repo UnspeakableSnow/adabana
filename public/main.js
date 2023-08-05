@@ -24,6 +24,8 @@ scene.add(light);
 let clock = new THREE.Clock();
 let gamemode=0;
 let usingPL=-1;
+const grandpic = [normloader.load('other_sozai/grand1.png')];
+const wallmodelPath=["medieval_asset02wall.glb", "medieval_asset_20_broken_wall.glb"];
 
 class PLs_ins{
     constructor(ID,type){
@@ -136,9 +138,69 @@ class arch_ins{
     console.log('arch成功 :',this.ID);
   }
 }
+class mapblock_ins{
+  constructor(ID,mode,x,z,right,top,left,bottom){
+      this.ID=ID;
+      this.mode=mode;
+      this.type=[right,top,left,bottom];
+      this.grand= new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({map:grandpic[0]}) );
+      this.grand.position.set(x*50,0,z*50);
+      this.grand.rotation.x=1.5*Math.PI;
+      scene.add(this.grand)
+      this.walls=[];
+      this.startposi=[];
+      if(this.type[0]){ // 上の壁
+        this.startposi.push([x*50-13,-1,z*50+24, 1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+        if(this.mode==0){
+        this.startposi.push([x*50+13,-1,z*50+24, -1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
+      if(this.type[1]){ // 右の壁
+        this.startposi.push([x*50-24,-1,z*50+12.5, 1,-0.5]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+        if(this.mode==0){
+        this.startposi.push([x*50-24,-1,z*50-11.5, -1,-0.5]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
+      if(this.type[2]){ // 下の壁
+        this.startposi.push([x*50-13,-1,z*50-24, 1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+        if(this.mode==0){
+        this.startposi.push([x*50+13,-1,z*50-24, -1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
+      if(this.type[3]){ // 左の壁
+        this.startposi.push([x*50+24,-1,z*50+12.5, 1,0.5]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+        if(this.mode==0){
+        this.startposi.push([x*50+24,-1,z*50-11.5, -1,0.5]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
+      }
+  load( gltf ) {
+    this.walls.push(gltf.scene);
+    scene.add(this.walls[this.walls.length-1]);
+    var loc=this.startposi[this.walls.length-1];
+    this.walls[this.walls.length-1].position.set(loc[0],loc[1],loc[2]);
+    this.walls[this.walls.length-1].scale.set(4,4,4);
+    this.walls[this.walls.length-1].scale.x*=loc[3];
+    this.walls[this.walls.length-1].rotation.y=(loc[4]+1)*Math.PI;
+  }
+}
 let PLs=[];
 let archs=null;
 let setupPL=null;
+let mapblock=[];
+const mapsize=2;
+for(var i=-mapsize;i<mapsize;i++)for(var j=-mapsize;j<mapsize;j++){
+  var maptype= parseInt(Math.random()*(2**4));
+  maptype& parseInt(Math.random()*(2**4));
+  if(i==mapsize-1)maptype=maptype|(2**0);
+  if(j==-mapsize)maptype=maptype|(2**1);
+  if(i==-mapsize)maptype=maptype|(2**2);
+  if(j==mapsize-1)maptype=maptype|(2**3);
+  maptype=maptype.toString(2).padStart(5, '0');
+  var maptypetf=[];
+  for(var k=0;k<4;k++) if(maptype[k]==1)maptypetf.push(true); else maptypetf.push(false);
+  mapblock.push(new mapblock_ins(0,0,i,j,maptypetf[0],maptypetf[1],maptypetf[2],maptypetf[3]));
+}
 
 function cameraset(track=null){
   switch(Number(gamemode)){
@@ -163,10 +225,6 @@ function cameraset(track=null){
 const directionalLight = new THREE.DirectionalLight(0xFFFFFF);// 平行光源
 directionalLight.position.set(1, 0.5, 1);
 scene.add(directionalLight);
-
-const grand = new THREE.Mesh(new THREE.PlaneGeometry( 300,300 ),  new THREE.MeshStandardMaterial({color:0xffff88}) );
-grand.rotation.x=1.5*Math.PI;
-scene.add(grand);
 
 const mousepoint_texture = normloader.load('other_sozai/mousepoint.png');
 const mousepoint = new THREE.Mesh(new THREE.PlaneGeometry( 3,3 ),  new THREE.MeshStandardMaterial({map:mousepoint_texture, transparent: true}) );
@@ -216,10 +274,21 @@ socket.on('adopt', (setupdata)=>{
   usingPL=setupdata[0];
   setupPL=setupdata[1];
   cameraset();
+  var style = document.createElement('style');
+  style.innerHTML = `#myCanvas{animation: fadein-anim 1s linear forwards;}`;
+  document.body.appendChild(style);
   gamemode=0.1;
 });
 socket.on('downdate', (loc)=>{
-  if(PLs.length<=loc[1] || !PLs[loc[1]].model) return -1;
+  if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
+  PLs[loc[1]].modeset(loc[3]);
+  if(loc[5])PLs[loc[1]].model.position.set(loc[5][0],loc[5][1],loc[5][2]);
+  if(loc[6]!=null)PLs[loc[1]].model.rotation.y=loc[6];
+  // console.log(loc[1],loc[6],PLs[loc[1]].model.rotation.y);
+});
+socket.on('append', (loc)=>{
+  PLs.push(new PLs_ins(loc[1],loc[2]));
+  if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
   PLs[loc[1]].modeset(loc[3]);
   if(loc[5])PLs[loc[1]].model.position.set(loc[5][0],loc[5][1],loc[5][2]);
   if(loc[6]!=null)PLs[loc[1]].model.rotation.y=loc[6];
@@ -279,3 +348,6 @@ function tick() {
 // "DAE Bazaar - Lamp Seller" (https://skfb.ly/oIAF8) by March Gutman is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
 // "Stylized wagon" (https://skfb.ly/oEYx8) by Irina Kostina is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
 // "Middle eastern cafe - DAE Bazaar" (https://skfb.ly/oIyZU) by Petru Grati is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+// "medieval asset02\wall" (https://skfb.ly/69JQZ) by hamsterspit is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+// "Medieval asset 20\ broken wall" (https://skfb.ly/69Kwt) by hamsterspit is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
