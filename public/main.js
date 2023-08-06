@@ -17,7 +17,6 @@ const normloader = new THREE.TextureLoader();
 // "bunny_grom_t-pose_brawl_stars.glb"
 const PLmodelPath=["bibi_rj_t-pose_brawl_stars-edited.glb","sprout_t-pose_brawl_stars-edited.glb","white_crow_t-pose_brawl_stars-edited.glb","born_bad_buzz_t-pose_brawl_stars-edited.glb"];
 let loadcompd=0;
-const PLstartPositions=[[-7,0,0],[7,0,0],[0,0,7],[0,0,-7],[7,0,14],[7,0,-14],[-7,0,14],[-7,0,-14]];
 const archmodelPath=["dae_bazaar_-_lamp_seller.glb","middle_eastern_cafe_-_dae_bazaar.glb","stylized_wagon.glb"];
 const light = new THREE.HemisphereLight(0x888888, 0x505000, 1.0);
 scene.add(light);
@@ -28,13 +27,14 @@ const grandpic = [normloader.load('other_sozai/grand1.png')];
 const wallmodelPath=["medieval_asset02wall.glb", "medieval_asset_20_broken_wall.glb"];
 
 class PLs_ins{
-    constructor(ID,type){
+    constructor(ID,type,startposi){
         this.ID=ID;
         this.type=type;
         this.model = null;
         this.mixer=null;
         this.mode=null;
-        this.startposi=PLstartPositions[this.ID%PLstartPositions.length];
+        this.onblock=[0,0];
+        this.startposi=startposi;
         switch(this.type){
           case 0:
             this.hit=[Math.PI*0.5,8];
@@ -74,7 +74,7 @@ class PLs_ins{
     }
     setup(){
       this.mixer = new THREE.AnimationMixer(this.model);
-      this.model.position.set(this.startposi[0],this.startposi[1],this.startposi[2]);
+      this.model.position.set(this.startposi[1],0,this.startposi[2]);
       this.modeset(0);
       this.HPbar= new THREE.Mesh(new THREE.PlaneGeometry(5,1), new THREE.MeshBasicMaterial( {color: 0x00ff00, side: THREE.DoubleSide}));
       scene.add( this.HPbar );
@@ -84,7 +84,6 @@ class PLs_ins{
       if(!this.mixer || this.mode==num) return -1;
       this.mixer.stopAllAction();
       this.mode=num;
-      if(this.ID==usingPL) socket.emit('modechange',[this.mode,this.model.rotation.y]);
       if(this.animations.length<=num || num<0){return -1;}
       this.anime = this.mixer.clipAction(this.animations[num]);
       this.anime.setLoop(THREE.LoopRepeat);
@@ -95,23 +94,24 @@ class PLs_ins{
       if(!this.model) return -1;
       if(this.startposi)this.setup();
       if(this.anime && this.mode==2 && this.anime._loopCount>0)this.modeset(0);
-      if(this.ID==usingPL && movto && this.mode!=2){
+      if(movto && (usingPL!=this.ID || this.mode!=2)){
         this.model.rotation.y=movto[0];
-        this.model.position.x+=movto[1];
-        this.model.position.z+=movto[2];
+        this.model.position.x=movto[1];
+        this.model.position.z=movto[2];
         if(this.mode!=1)this.modeset(1);
-      }else if(this.ID==usingPL && this.mode==1)this.modeset(0);
+      }else if(this.mode==1)this.modeset(0);
+      this.onblock
       if(this.HP<0)this.HP=0;
       this.HPbar.scale.x=this.HP/this.MaxHP;
       this.HPbar.position.set(this.model.position.x+2*(this.MaxHP-this.HP)/this.MaxHP,this.model.position.y+10,this.model.position.z);
     }
-    attack(mouseX,mouseY){
-      if(!this.model || this.mode!=0) return -1;
-      var phi = Math.atan2(-mouseX,-mouseY);
+    attack(phi){
+      if(!phi || !this.model || this.mode!=0) return -1;
       this.model.rotation.y=phi;
+      if(this.ID==usingPL) socket.emit('attack',[usingPL,phi]);
       this.modeset(2);
-      for(var i=0;i<PLs.length;i++){
-        if(!PLs[i].model || i==this.ID) continue;
+      if(this.ID==usingPL) for(var i=0;i<PLs.length;i++){
+        if(!PLs[i] || !PLs[i].model || i==this.ID) continue;
         var disx=PLs[i].model.position.x-this.model.position.x;
         var disz=PLs[i].model.position.z-this.model.position.z;
         var rad=Math.sqrt(disx*disx+disz*disz);
@@ -132,47 +132,43 @@ class arch_ins{
   load( gltf ) {
     this.model = gltf.scene;
     scene.add( this.model );
-    this.model.position.set(this.startposi[0],this.startposi[1],this.startposi[2]);
+    this.model.position.set(this.startposi[1],0,this.startposi[2]);
     this.model.scale.set(4,4,4);
     this.model.rotation.y=Math.PI;
     console.log('arch成功 :',this.ID);
   }
 }
 class mapblock_ins{
-  constructor(ID,mode,x,z,right,top,left,bottom){
+  constructor(ID,mode,x,z,maptype){
       this.ID=ID;
       this.mode=mode;
-      this.type=[right,top,left,bottom];
+      this.type=maptype;
       this.grand= new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({map:grandpic[0]}) );
       this.grand.position.set(x*50,0,z*50);
       this.grand.rotation.x=1.5*Math.PI;
       scene.add(this.grand)
       this.walls=[];
       this.startposi=[];
-      if(this.type[0]){ // 上の壁
-        this.startposi.push([x*50-13,-1,z*50+24, 1,0]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
-        if(this.mode==0){
-        this.startposi.push([x*50+13,-1,z*50+24, -1,0]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
-      if(this.type[1]){ // 右の壁
+      if(this.type&0b1){ // 右の壁
         this.startposi.push([x*50-24,-1,z*50+12.5, 1,-0.5]);
         loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
-        if(this.mode==0){
         this.startposi.push([x*50-24,-1,z*50-11.5, -1,-0.5]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
-      if(this.type[2]){ // 下の壁
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }
+      if(this.type&0b10){ // 上の壁
+        this.startposi.push([x*50-13,-1,z*50+24, 1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+        this.startposi.push([x*50+13,-1,z*50+24, -1,0]);
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }
+        if(this.type&0b100){ // 左の壁
+          this.startposi.push([x*50+24,-1,z*50+12.5, 1,0.5]);
+          loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
+          this.startposi.push([x*50+24,-1,z*50-11.5, -1,0.5]);
+          loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }
+      if(this.type&0b1000){ // 下の壁
         this.startposi.push([x*50-13,-1,z*50-24, 1,0]);
         loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
-        if(this.mode==0){
         this.startposi.push([x*50+13,-1,z*50-24, -1,0]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
-      if(this.type[3]){ // 左の壁
-        this.startposi.push([x*50+24,-1,z*50+12.5, 1,0.5]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
-        if(this.mode==0){
-        this.startposi.push([x*50+24,-1,z*50-11.5, -1,0.5]);
-        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }  }
+        loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }
       }
   load( gltf ) {
     this.walls.push(gltf.scene);
@@ -188,18 +184,15 @@ let PLs=[];
 let archs=null;
 let setupPL=null;
 let mapblock=[];
-const mapsize=2;
+const mapsize=5;
 for(var i=-mapsize;i<mapsize;i++)for(var j=-mapsize;j<mapsize;j++){
   var maptype= parseInt(Math.random()*(2**4));
-  maptype& parseInt(Math.random()*(2**4));
-  if(i==mapsize-1)maptype=maptype|(2**0);
-  if(j==-mapsize)maptype=maptype|(2**1);
-  if(i==-mapsize)maptype=maptype|(2**2);
-  if(j==mapsize-1)maptype=maptype|(2**3);
-  maptype=maptype.toString(2).padStart(5, '0');
-  var maptypetf=[];
-  for(var k=0;k<4;k++) if(maptype[k]==1)maptypetf.push(true); else maptypetf.push(false);
-  mapblock.push(new mapblock_ins(0,0,i,j,maptypetf[0],maptypetf[1],maptypetf[2],maptypetf[3]));
+  maptype= maptype& parseInt(Math.random()*(2**4));
+  if(i==-mapsize)maptype=maptype|0b1;
+  if(j==mapsize-1)maptype=maptype|0b10;
+  if(i==mapsize-1)maptype=maptype|0b100;
+  if(j==-mapsize)maptype=maptype|0b1000;
+  mapblock.push(new mapblock_ins(i*mapsize*2+j,0,i,j,maptype));
 }
 
 function cameraset(track=null){
@@ -211,7 +204,8 @@ function cameraset(track=null){
     case 1:
       if(!PLs[track].model)return -1;
       var trackmodel= PLs[track].model
-      camera.position.set(trackmodel.position.x,60,trackmodel.position.z-80);
+      // camera.position.set(trackmodel.position.x,60,trackmodel.position.z-80);
+      camera.position.set(trackmodel.position.x,50,trackmodel.position.z-8);
       camera.lookAt(trackmodel.position.x,trackmodel.position.y,trackmodel.position.z);
       if(track==usingPL){
       var phi= Math.atan2(-mouseX,-mouseY);
@@ -234,12 +228,12 @@ scene.add(mousepoint);
 
 const titlewallpic = normloader.load('other_sozai/titlewall.png');
 const titlewall = new THREE.Mesh(new THREE.PlaneGeometry( 5,5 ),  new THREE.MeshStandardMaterial({map:titlewallpic}) );
-titlewall.position.set(0,-100,-10);
+titlewall.position.set(0,-100,-5);
 scene.add(titlewall);
 cameraset();
 const loadingbar= new THREE.Mesh(new THREE.PlaneGeometry(4,0.01), 
   new THREE.MeshBasicMaterial( {color: 0xff0000, side: THREE.DoubleSide}));
-loadingbar.position.set(0,-102,-9.9);
+loadingbar.position.set(0,-101.5,-4.9);
 loadingbar.scale.x=0;
 scene.add(loadingbar);
 renderer.render(scene, camera);
@@ -279,26 +273,31 @@ socket.on('adopt', (setupdata)=>{
   document.body.appendChild(style);
   gamemode=0.1;
 });
-socket.on('downdate', (loc)=>{
-  if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
-  PLs[loc[1]].modeset(loc[3]);
-  if(loc[5])PLs[loc[1]].model.position.set(loc[5][0],loc[5][1],loc[5][2]);
-  if(loc[6]!=null)PLs[loc[1]].model.rotation.y=loc[6];
-  // console.log(loc[1],loc[6],PLs[loc[1]].model.rotation.y);
+socket.on('move', (loc)=>{
+  if(PLs.length<=loc[0] || !PLs[loc[0]].model || loc[0]==usingPL) return -1;
+  PLs[loc[0]].update(loc[1])
 });
+socket.on('attack', (loc)=>{
+  if(PLs.length<=loc[0] || !PLs[loc[0]].model || loc[0]==usingPL) return -1;
+  PLs[loc[0]].attack(loc[1])
+});
+socket.on('PLnull', (loc)=>{if(gamemode<1) return -1;  PLs.push(null)});
 socket.on('append', (loc)=>{
-  PLs.push(new PLs_ins(loc[1],loc[2]));
+  if(gamemode<1) return -1;
+  if(PLs.length>loc[1]) PLs.splice( loc[1], 1, new PLs_ins(loc[1],loc[2],loc[4]));
+  // else PLs.push(new PLs_ins(loc[1],loc[2],loc[4]));
+  else console.error("なんかおかしい");
+
   if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
   PLs[loc[1]].modeset(loc[3]);
-  if(loc[5])PLs[loc[1]].model.position.set(loc[5][0],loc[5][1],loc[5][2]);
-  if(loc[6]!=null)PLs[loc[1]].model.rotation.y=loc[6];
-  // console.log(loc[1],loc[6],PLs[loc[1]].model.rotation.y);
+  PLs[loc[1]].model.rotation.y=loc[5][0];
+  if(loc[4])PLs[loc[1]].model.position.set(loc[5][1],0,loc[5][2]);
 });
 
 tick();
 function tick() {
   var t_delta=clock.getDelta();
-  // console.log(usingPL)
+  // console.log(usingPL,PLs.length)
 
   switch(gamemode){
   case 0:
@@ -309,7 +308,8 @@ function tick() {
     loadingbar.scale.x=0.2+0.8*loadcompd/setupPL.length;
 
     if(PLs.length==0)for(var i=0;i<setupPL.length;i++){
-      if(setupPL[i][2]!=-1) PLs.push(new PLs_ins(setupPL[i][1],setupPL[i][2]));
+      if(setupPL[i][2]!=-1) PLs.push(new PLs_ins(setupPL[i][1],setupPL[i][2],setupPL[i][4]));
+      else{PLs.push(null);loadcompd++;}
     }
     // if(!archs)archs=[new arch_ins(0,0),new arch_ins(1,1),new arch_ins(2,2)];
     if(loadcompd==setupPL.length)gamemode=1;
@@ -318,15 +318,17 @@ function tick() {
   case 1:
     var wasdsum=wasd.reduce((a,b)=>a+b);
     var togo= Math.PI*(wasd[0]*0+ wasd[1]*0.5+ wasd[2]*1+ wasd[3]*1.5)/ wasdsum;
-    if(wasd[0]==1&& wasd[3]==1)togo=1.75*Math.PI;
+    if(wasd[0]==1 && wasd[3]==1)togo=1.75*Math.PI;
     for(var i=0;i<PLs.length;i++){
-      if(i==usingPL && wasdsum!=0 && wasdsum<3){
-        PLs[i].update([togo,Math.sin(togo)*t_delta*50, Math.cos(togo)*t_delta*50]);
-        socket.emit('move',[[PLs[i].model.position.x,PLs[i].model.position.y,PLs[i].model.position.z],PLs[i].model.rotation.y]);
-      }else if(i==usingPL && mousedown==true) PLs[i].attack(mouseX,mouseY);
-      else{
-        PLs[i].update(null); //ここに他キャラクターの挙動を設定
-      }
+      if(!PLs[i]) continue;
+      if(i==usingPL && wasdsum>0 && wasdsum<3){
+        var tobe_x=PLs[i].model.position.x+Math.sin(togo)*t_delta*50;
+        var tobe_z=PLs[i].model.position.z+Math.cos(togo)*t_delta*50;
+        PLs[i].update([togo, tobe_x, tobe_z]);
+        socket.emit('move',[usingPL,[PLs[i].model.rotation.y,PLs[i].model.position.x,PLs[i].model.position.z]]);
+      }else if(i==usingPL && mousedown==true) PLs[i].attack(Math.atan2(-mouseX,-mouseY));
+      else PLs[i].update(null);
+
       if(PLs[i].mixer!=null){
         PLs[i].mixer.update(t_delta);
         if(PLs[i].mode==2)PLs[i].mixer.update(t_delta);}
