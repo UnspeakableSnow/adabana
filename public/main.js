@@ -186,8 +186,8 @@ let setupPL=null;
 let mapblock=[];
 const mapsize=5;
 for(var i=-mapsize;i<mapsize;i++)for(var j=-mapsize;j<mapsize;j++){
-  var maptype= parseInt(Math.random()*(2**4));
-  maptype= maptype& parseInt(Math.random()*(2**4));
+  var maptype= Math.floor(Math.random()*(2**4));
+  maptype= maptype& Math.floor(Math.random()*(2**4));
   if(i==-mapsize)maptype=maptype|0b1;
   if(j==mapsize-1)maptype=maptype|0b10;
   if(i==mapsize-1)maptype=maptype|0b100;
@@ -215,6 +215,7 @@ function cameraset(track=null){
       break;
   }
 }
+function masu_50(posi){ return Math.floor((posi-25)/50) }
 
 const directionalLight = new THREE.DirectionalLight(0xFFFFFF);// 平行光源
 directionalLight.position.set(1, 0.5, 1);
@@ -285,7 +286,6 @@ socket.on('PLnull', (loc)=>{if(gamemode<1) return -1;  PLs.push(null)});
 socket.on('append', (loc)=>{
   if(gamemode<1) return -1;
   if(PLs.length>loc[1]) PLs.splice( loc[1], 1, new PLs_ins(loc[1],loc[2],loc[4]));
-  // else PLs.push(new PLs_ins(loc[1],loc[2],loc[4]));
   else console.error("なんかおかしい");
 
   if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
@@ -324,6 +324,8 @@ function tick() {
       if(i==usingPL && wasdsum>0 && wasdsum<3){
         var tobe_x=PLs[i].model.position.x+Math.sin(togo)*t_delta*50;
         var tobe_z=PLs[i].model.position.z+Math.cos(togo)*t_delta*50;
+        var fromtoblock=[masu_50(PLs[i].model.position.x), masu_50(PLs[i].model.position.z), masu_50(tobe_x), masu_50(tobe_z)];
+        // if(fromtoblock[0]==fromtoblock[2] || mapsize) 作りかけ！
         PLs[i].update([togo, tobe_x, tobe_z]);
         socket.emit('move',[usingPL,[PLs[i].model.rotation.y,PLs[i].model.position.x,PLs[i].model.position.z]]);
       }else if(i==usingPL && mousedown==true) PLs[i].attack(Math.atan2(-mouseX,-mouseY));
