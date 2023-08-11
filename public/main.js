@@ -27,7 +27,7 @@ const grandpic = [normloader.load('other_sozai/grand1.png')];
 const wallmodelPath=["medieval_asset02wall.glb", "medieval_asset_20_broken_wall.glb"];
 
 class PLs_ins{
-    constructor(ID,type,startposi){
+    constructor(ID,type,nowHP,startposi){
         this.ID=ID;
         this.type=type;
         this.model = null;
@@ -35,6 +35,9 @@ class PLs_ins{
         this.mode=null;
         this.onblock=[0,0];
         this.startposi=startposi;
+        this.setupAlready=true;
+        this.walktimecount=0;
+        this.dethtimecount=0;
         switch(this.type){
           case 0:
             this.hit=[Math.PI*0.5,8];
@@ -62,13 +65,15 @@ class PLs_ins{
             this.MaxHP=2;
             break;
         }
-        this.HP=this.MaxHP;
+        this.HP=nowHP;
         loadergltf.load("PLmodels/"+PLmodelPath[type], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
     }
     load( gltf ) {
       this.model = gltf.scene;
       this.animations = gltf.animations;
       scene.add( this.model );
+      this.HPbar= new THREE.Mesh(new THREE.PlaneGeometry(5,1), new THREE.MeshBasicMaterial( {color: 0x00ff00, side: THREE.DoubleSide}));
+      scene.add( this.HPbar );
       console.log('成功 :',this.ID);
       loadcompd+=1;
     }
@@ -76,9 +81,7 @@ class PLs_ins{
       this.mixer = new THREE.AnimationMixer(this.model);
       this.model.position.set(this.startposi[1],0,this.startposi[2]);
       this.modeset(0);
-      this.HPbar= new THREE.Mesh(new THREE.PlaneGeometry(5,1), new THREE.MeshBasicMaterial( {color: 0x00ff00, side: THREE.DoubleSide}));
-      scene.add( this.HPbar );
-      this.startposi=null;
+      this.setupAlready=false;
     }
     modeset(num) {
       if(!this.mixer || this.mode==num) return -1;
@@ -90,18 +93,27 @@ class PLs_ins{
       this.anime.clampWhenFinished = true;
       this.anime.play();
     }
-    update(movto){
+    update(movto,t_delta){
       if(!this.model) return -1;
-      if(this.startposi)this.setup();
+      if(this.setupAlready)this.setup();
       if(this.anime && this.mode==2 && this.anime._loopCount>0)this.modeset(0);
-      if(movto && (usingPL!=this.ID || this.mode!=2)){
+      if(this.mode==1) this.walktimecount+=t_delta;
+      if(movto && (usingPL!=this.ID || this.mode==0 || this.mode==1)){
         this.model.rotation.y=movto[0];
         this.model.position.x=movto[1];
         this.model.position.z=movto[2];
-        if(this.mode!=1)this.modeset(1);
-      }else if(this.mode==1)this.modeset(0);
-      this.onblock
-      if(this.HP<0)this.HP=0;
+        if(this.mode==0){this.modeset(1);}
+        if(usingPL!=this.ID) this.walktimecount=0;
+      }else if(this.mode==1 && this.walktimecount>0.2)this.modeset(0);
+      if(this.mixer!=null){
+        this.mixer.update(t_delta);
+        if(this.mode==2)this.mixer.update(t_delta);}
+      if(this.HP<=0){this.HP=0; this.dethtimecount+=t_delta;}
+      else this.dethtimecount=0;
+      if(Math.ceil(this.dethtimecount**2/5+this.dethtimecount*5)%2) this.model.visible=false;
+      else this.model.visible=true;
+      if(usingPL==this.ID && this.dethtimecount>2){this.setupAlready=true; socket.emit('move',[this.ID, this.startposi]);}
+      if(usingPL==this.ID && this.dethtimecount>3)socket.emit('updateHP',[this.ID, this.MaxHP]);
       this.HPbar.scale.x=this.HP/this.MaxHP;
       this.HPbar.position.set(this.model.position.x+2*(this.MaxHP-this.HP)/this.MaxHP,this.model.position.y+10,this.model.position.z);
     }
@@ -116,7 +128,7 @@ class PLs_ins{
         var disz=PLs[i].model.position.z-this.model.position.z;
         var rad=Math.sqrt(disx*disx+disz*disz);
         var tagphi=Math.atan2(disx,disz);
-        if(Math.abs(tagphi-phi)<this.hit[0] && rad<this.hit[1]){PLs[i].HP-=this.power;}
+        if(Math.abs(tagphi-phi)<this.hit[0] && rad<this.hit[1]){socket.emit('updateHP',[i,PLs[i].HP-this.power]);}
       }
     }
 }
@@ -169,6 +181,7 @@ class mapblock_ins{
         loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );
         this.startposi.push([x*50+13,-1,z*50-24, -1,0]);
         loadergltf.load("archmodels/"+wallmodelPath[this.mode], this.load.bind(this), ()=>{}, function ( error ) {console.error( error );} );  }
+      loadcompd+=1;
       }
   load( gltf ) {
     this.walls.push(gltf.scene);
@@ -184,16 +197,6 @@ let PLs=[];
 let archs=null;
 let setupPL=null;
 let mapblock=[];
-const mapsize=5;
-for(var i=-mapsize;i<mapsize;i++)for(var j=-mapsize;j<mapsize;j++){
-  var maptype= Math.floor(Math.random()*(2**4));
-  maptype= maptype& Math.floor(Math.random()*(2**4));
-  if(i==-mapsize)maptype=maptype|0b1;
-  if(j==mapsize-1)maptype=maptype|0b10;
-  if(i==mapsize-1)maptype=maptype|0b100;
-  if(j==-mapsize)maptype=maptype|0b1000;
-  mapblock.push(new mapblock_ins(i*mapsize*2+j,0,i,j,maptype));
-}
 
 function cameraset(track=null){
   switch(Number(gamemode)){
@@ -204,8 +207,8 @@ function cameraset(track=null){
     case 1:
       if(!PLs[track].model)return -1;
       var trackmodel= PLs[track].model
-      // camera.position.set(trackmodel.position.x,60,trackmodel.position.z-80);
-      camera.position.set(trackmodel.position.x,50,trackmodel.position.z-8);
+      camera.position.set(trackmodel.position.x,60,trackmodel.position.z-80);
+      // camera.position.set(trackmodel.position.x,200,trackmodel.position.z-8); // デバッグカメラ
       camera.lookAt(trackmodel.position.x,trackmodel.position.y,trackmodel.position.z);
       if(track==usingPL){
       var phi= Math.atan2(-mouseX,-mouseY);
@@ -215,7 +218,7 @@ function cameraset(track=null){
       break;
   }
 }
-function masu_50(posi){ return Math.floor((posi-25)/50) }
+function masu_50(posi){ return Math.floor((posi+25)/50) }
 
 const directionalLight = new THREE.DirectionalLight(0xFFFFFF);// 平行光源
 directionalLight.position.set(1, 0.5, 1);
@@ -268,6 +271,7 @@ socket.on('reqType', ()=>{socket.emit('setType', Number(prompt('キャラクタ�
 socket.on('adopt', (setupdata)=>{
   usingPL=setupdata[0];
   setupPL=setupdata[1];
+  mapblock=setupdata[2];
   cameraset();
   var style = document.createElement('style');
   style.innerHTML = `#myCanvas{animation: fadein-anim 1s linear forwards;}`;
@@ -276,16 +280,19 @@ socket.on('adopt', (setupdata)=>{
 });
 socket.on('move', (loc)=>{
   if(PLs.length<=loc[0] || !PLs[loc[0]].model || loc[0]==usingPL) return -1;
-  PLs[loc[0]].update(loc[1])
+  PLs[loc[0]].update(loc[1],t_delta);
 });
 socket.on('attack', (loc)=>{
   if(PLs.length<=loc[0] || !PLs[loc[0]].model || loc[0]==usingPL) return -1;
-  PLs[loc[0]].attack(loc[1])
+  PLs[loc[0]].attack(loc[1]);
+});
+socket.on('updateHP', (loc)=>{
+  PLs[loc[0]].HP=loc[1];
 });
 socket.on('PLnull', (loc)=>{if(gamemode<1) return -1;  PLs.push(null)});
 socket.on('append', (loc)=>{
   if(gamemode<1) return -1;
-  if(PLs.length>loc[1]) PLs.splice( loc[1], 1, new PLs_ins(loc[1],loc[2],loc[4]));
+  if(PLs.length>loc[1]) PLs.splice( loc[1], 1, new PLs_ins(loc[1],loc[2],loc[3],loc[4]));
   else console.error("なんかおかしい");
 
   if(PLs.length<=loc[1] || !PLs[loc[1]].model || loc[1]==usingPL) return -1;
@@ -294,25 +301,24 @@ socket.on('append', (loc)=>{
   if(loc[4])PLs[loc[1]].model.position.set(loc[5][1],0,loc[5][2]);
 });
 
+
+var t_delta=0;
 tick();
 function tick() {
-  var t_delta=clock.getDelta();
-  // console.log(usingPL,PLs.length)
-
+  t_delta=clock.getDelta();
   switch(gamemode){
   case 0:
     cameraset();
     loadingbar.scale.x=0.1;
     break;
   case 0.1:
-    loadingbar.scale.x=0.2+0.8*loadcompd/setupPL.length;
-
-    if(PLs.length==0)for(var i=0;i<setupPL.length;i++){
-      if(setupPL[i][2]!=-1) PLs.push(new PLs_ins(setupPL[i][1],setupPL[i][2],setupPL[i][4]));
-      else{PLs.push(null);loadcompd++;}
-    }
-    // if(!archs)archs=[new arch_ins(0,0),new arch_ins(1,1),new arch_ins(2,2)];
-    if(loadcompd==setupPL.length)gamemode=1;
+    loadingbar.scale.x=loadcompd/(setupPL.length+mapblock.length**2);
+    console.log(loadcompd/(setupPL.length+mapblock.length**2))
+    if(PLs.length==0){for(var i=0;i<setupPL.length;i++){
+      if(setupPL[i][2]!=-1) PLs.push(new PLs_ins(setupPL[i][1],setupPL[i][2],setupPL[i][3],setupPL[i][4]));
+      else{PLs.push(null);loadcompd++;}  }
+    for(var i=0;i<mapblock.length;i++)for(var j=0;j<mapblock.length;j++)mapblock[i][j]=(new mapblock_ins(i*mapblock.length+j,0,i,j,mapblock[i][j])); console.log(mapblock)}
+    if(loadcompd==(setupPL.length+mapblock.length**2))gamemode=1;
     break;
 
   case 1:
@@ -322,18 +328,17 @@ function tick() {
     for(var i=0;i<PLs.length;i++){
       if(!PLs[i]) continue;
       if(i==usingPL && wasdsum>0 && wasdsum<3){
-        var tobe_x=PLs[i].model.position.x+Math.sin(togo)*t_delta*50;
-        var tobe_z=PLs[i].model.position.z+Math.cos(togo)*t_delta*50;
+        var tobe_x=PLs[i].model.position.x+Math.sign(Math.sin(togo))*5;
+        var tobe_z=PLs[i].model.position.z+Math.sign(Math.cos(togo))*5;
         var fromtoblock=[masu_50(PLs[i].model.position.x), masu_50(PLs[i].model.position.z), masu_50(tobe_x), masu_50(tobe_z)];
-        // if(fromtoblock[0]==fromtoblock[2] || mapsize) 作りかけ！
-        PLs[i].update([togo, tobe_x, tobe_z]);
+        if(fromtoblock[2]<0 || fromtoblock[2]>=mapblock.length || (fromtoblock[0]>fromtoblock[2] && (mapblock[fromtoblock[0]][fromtoblock[1]].type&0b1 || mapblock[fromtoblock[2]][fromtoblock[1]].type&0b100)) || (fromtoblock[0]<fromtoblock[2] && (mapblock[fromtoblock[0]][fromtoblock[1]].type&0b100 || mapblock[fromtoblock[2]][fromtoblock[1]].type&0b1))) tobe_x= PLs[i].model.position.x;
+        else tobe_x=PLs[i].model.position.x+Math.sin(togo)*t_delta*50;
+        if(fromtoblock[3]<0 || fromtoblock[3]>=mapblock.length || (fromtoblock[1]>fromtoblock[3] && (mapblock[fromtoblock[0]][fromtoblock[1]].type&0b1000 || mapblock[fromtoblock[0]][fromtoblock[3]].type&0b10)) || (fromtoblock[1]<fromtoblock[3] && (mapblock[fromtoblock[0]][fromtoblock[1]].type&0b10 || mapblock[fromtoblock[0]][fromtoblock[3]].type&0b1000))) tobe_z= PLs[i].model.position.z;
+        else tobe_z=PLs[i].model.position.z+Math.cos(togo)*t_delta*50;
+        PLs[i].update([togo, tobe_x, tobe_z],t_delta);
         socket.emit('move',[usingPL,[PLs[i].model.rotation.y,PLs[i].model.position.x,PLs[i].model.position.z]]);
       }else if(i==usingPL && mousedown==true) PLs[i].attack(Math.atan2(-mouseX,-mouseY));
-      else PLs[i].update(null);
-
-      if(PLs[i].mixer!=null){
-        PLs[i].mixer.update(t_delta);
-        if(PLs[i].mode==2)PLs[i].mixer.update(t_delta);}
+      else PLs[i].update(null,t_delta);
     }
     cameraset(usingPL);
     break;
